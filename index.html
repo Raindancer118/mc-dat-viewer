@@ -182,6 +182,7 @@
     text-shadow: 1px 1px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000; color: #fff;
   }
   .slot .name { font-size: 8.5px; line-height: 1.15; color: #d7dae4; word-break: break-word; max-height: 26px; overflow: hidden; }
+  .ench-glint { color: #cd8fff; font-style: italic; }
   .slot.empty { box-shadow: inset 2px 2px 0 rgba(255,255,255,0.04), inset -2px -2px 0 rgba(0,0,0,0.3); cursor: default; }
   .slot.empty:hover { box-shadow: inset 2px 2px 0 rgba(255,255,255,0.04), inset -2px -2px 0 rgba(0,0,0,0.3); }
   .slot.special { box-shadow: inset 2px 2px 0 var(--slot-bevel-lt), inset -2px -2px 0 var(--slot-bevel-dk), 0 0 0 1px var(--gold); }
@@ -442,6 +443,75 @@ function toPlain(node) {
   }
 }
 
+/* ---------------- display-name / rich-text formatting ---------------- */
+const SMALL_WORDS = new Set(['of', 'the', 'a', 'an', 'on', 'in', 'and', 'de']);
+function humanizeId(id) {
+  const name = (id || '').replace('minecraft:', '').replace(/_/g, ' ').trim();
+  if (!name) return '?';
+  return name.split(' ').map((w, i) => (i > 0 && SMALL_WORDS.has(w)) ? w : (w.charAt(0).toUpperCase() + w.slice(1)))
+    .join(' ');
+}
+const ROMAN = ['0','I','II','III','IV','V','VI','VII','VIII','IX','X','XI','XII','XIII','XIV','XV','XVI','XVII','XVIII','XIX','XX'];
+function toRoman(n) { return ROMAN[n] || String(n); }
+
+const MC_COLORS = {
+  black: '#000000', dark_blue: '#1616AB', dark_green: '#18A318', dark_aqua: '#18A3A3',
+  dark_red: '#AB1616', dark_purple: '#AB16AB', gold: '#FFAA00', gray: '#A3A3A3',
+  dark_gray: '#4B4B4B', blue: '#5959FF', green: '#5FE45F', aqua: '#5FE4E4',
+  red: '#FF5F5F', light_purple: '#FF77FF', yellow: '#FFEC5F', white: '#FFFFFF',
+};
+const LEGACY_CODES = { '0':'black','1':'dark_blue','2':'dark_green','3':'dark_aqua','4':'dark_red','5':'dark_purple','6':'gold','7':'gray','8':'dark_gray','9':'blue','a':'green','b':'aqua','c':'red','d':'light_purple','e':'yellow','f':'white' };
+
+/** Renders legacy §-formatted text to HTML spans (color/bold/italic), escaping the rest. */
+function formatLegacyText(str) {
+  const parts = String(str).split(/§([0-9a-fk-or])/i);
+  let color = null, italic = false, bold = false;
+  let html = escapeHtml(parts[0] || '');
+  for (let i = 1; i < parts.length; i += 2) {
+    const code = parts[i].toLowerCase();
+    const text = parts[i + 1] || '';
+    if (LEGACY_CODES[code]) { color = LEGACY_CODES[code]; italic = false; bold = false; }
+    else if (code === 'l') bold = true;
+    else if (code === 'o') italic = true;
+    else if (code === 'r') { color = null; italic = false; bold = false; }
+    const style = `${color ? `color:${MC_COLORS[color]};` : ''}${italic ? 'font-style:italic;' : ''}${bold ? 'font-weight:700;' : ''}`;
+    html += style ? `<span style="${style}">${escapeHtml(text)}</span>` : escapeHtml(text);
+  }
+  return html;
+}
+/** Renders a parsed JSON text component (with color/bold/italic/extra) to HTML. */
+function formatJsonComponent(node, inherited) {
+  inherited = inherited || {};
+  if (typeof node === 'string') return formatLegacyText(node);
+  if (!node || typeof node !== 'object') return '';
+  const st = Object.assign({}, inherited);
+  if (node.color) st.color = node.color.startsWith('#') ? node.color : (MC_COLORS[node.color] || null);
+  if (node.bold !== undefined) st.bold = node.bold;
+  if (node.italic !== undefined) st.italic = node.italic;
+  let html = '';
+  if (typeof node.text === 'string' && node.text) {
+    const style = `${st.color ? `color:${st.color};` : ''}${st.italic ? 'font-style:italic;' : ''}${st.bold ? 'font-weight:700;' : ''}`;
+    const inner = formatLegacyText(node.text);
+    html += style ? `<span style="${style}">${inner}</span>` : inner;
+  }
+  if (Array.isArray(node.extra)) for (const e of node.extra) html += formatJsonComponent(e, st);
+  return html;
+}
+/** raw = a Minecraft text-component string (JSON or legacy-quoted) -> {html, plain} */
+function richText(raw) {
+  let json = null;
+  try { json = JSON.parse(raw); } catch (e) { /* not json */ }
+  let html;
+  if (json !== null) {
+    if (Array.isArray(json)) html = json.map(p => formatJsonComponent(p)).join('');
+    else html = formatJsonComponent(json);
+  } else {
+    html = formatLegacyText(raw.replace(/^"|"$/g, ''));
+  }
+  const plain = html.replace(/<[^>]+>/g, '').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>');
+  return { html, plain };
+}
+
 /* ---------------- item extraction ---------------- */
 function getItemId(itemNode) {
   const idNode = field(itemNode, 'id');
@@ -461,6 +531,7 @@ function getItemSlot(itemNode) {
   if (c['slot']) return nodeNum(c['slot']);
   return null;
 }
+/** Returns [{name, level}] with humanized enchant names, sorted A-Z. */
 function getEnchants(itemNode) {
   const out = [];
   const c = comp(itemNode);
@@ -473,7 +544,7 @@ function getEnchants(itemNode) {
       const levelsComp = comp(enchComp['levels']) || enchComp;
       for (const [k, v] of Object.entries(levelsComp)) {
         if (k === 'show_in_tooltip') continue;
-        out.push(k.replace('minecraft:', '') + ' ' + nodeNum(v));
+        out.push({ name: humanizeId(k), level: nodeNum(v) });
       }
     }
   }
@@ -485,35 +556,70 @@ function getEnchants(itemNode) {
         const ec = comp(e);
         if (!ec) continue;
         const id = ec['id'] ? nodeStr(ec['id']) : '?';
-        const lvl = ec['lvl'] ? nodeNum(ec['lvl']) : '';
-        out.push(id.replace('minecraft:', '') + ' ' + lvl);
+        const lvl = ec['lvl'] ? nodeNum(ec['lvl']) : 1;
+        out.push({ name: humanizeId(id), level: lvl });
       }
     }
   }
+  out.sort((a, b) => a.name.localeCompare(b.name));
   return out;
 }
+/** Returns {html, plain} for a renamed item's custom name, or null. */
 function getCustomName(itemNode) {
   const c = comp(itemNode);
   if (!c) return null;
   const components = comp(c['components']);
   if (components && components['minecraft:custom_name']) {
-    return extractText(nodeStr(components['minecraft:custom_name']));
+    return richText(nodeStr(components['minecraft:custom_name']));
   }
   const tag = comp(c['tag']);
   if (tag) {
     const display = comp(tag['display']);
-    if (display && display['Name']) return extractText(nodeStr(display['Name']));
+    if (display && display['Name']) return richText(nodeStr(display['Name']));
   }
   return null;
 }
-function extractText(raw) {
-  try {
-    const j = JSON.parse(raw);
-    if (typeof j === 'string') return j;
-    if (j && j.text) return j.text;
-    if (Array.isArray(j)) return j.map(p => (p && p.text) || '').join('');
-  } catch (e) { /* not json */ }
-  return raw.replace(/^"|"$/g, '');
+/** Potion / splash potion / lingering potion / tipped arrow display name, or null. */
+function getPotionName(itemNode) {
+  const c = comp(itemNode);
+  if (!c) return null;
+  const rawId = getItemId(itemNode) || '';
+  let potionId = null;
+  const components = comp(c['components']);
+  if (components) {
+    const pc = comp(components['minecraft:potion_contents']);
+    if (pc && pc['potion']) potionId = nodeStr(pc['potion']);
+  }
+  if (!potionId) {
+    const tag = comp(c['tag']);
+    if (tag && tag['Potion']) potionId = nodeStr(tag['Potion']);
+  }
+  if (!potionId) return null;
+  potionId = potionId.replace('minecraft:', '').replace(/^(strong_|long_)/, '');
+  if (potionId === 'water') return 'Water Bottle';
+  const base = humanizeId('minecraft:' + potionId);
+  if (rawId.includes('splash_potion')) return `Splash Potion of ${base}`;
+  if (rawId.includes('lingering_potion')) return `Lingering Potion of ${base}`;
+  if (rawId.includes('tipped_arrow') || rawId.includes('arrow')) return `Arrow of ${base}`;
+  return `Potion of ${base}`;
+}
+/** Written/writable book title (+author), or null. */
+function getBookInfo(itemNode) {
+  const c = comp(itemNode);
+  if (!c) return null;
+  const components = comp(c['components']);
+  if (components && components['minecraft:written_book_content']) {
+    const wb = comp(components['minecraft:written_book_content']);
+    const titleComp = comp(wb['title']);
+    const title = titleComp && titleComp['raw'] ? nodeStr(titleComp['raw']) : (wb['title'] ? nodeStr(wb['title']) : null);
+    const author = wb['author'] ? nodeStr(wb['author']) : null;
+    if (title) return { title, author };
+  }
+  const tag = comp(c['tag']);
+  if (tag && tag['title']) {
+    return { title: nodeStr(tag['title']), author: tag['author'] ? nodeStr(tag['author']) : null };
+  }
+  return null;
 }
 /** Returns array of {slot, item} for the contents of a container item (shulker box etc), or null */
 function getContainerContents(itemNode) {
@@ -642,12 +748,25 @@ function renderSlot(itemNode, slotIndex) {
   }
   const rawId = getItemId(itemNode) || '?';
   const id = rawId.replace('minecraft:', '');
+  const humanized = humanizeId(rawId);
   const count = getItemCount(itemNode);
   const enchants = getEnchants(itemNode);
   const customName = getCustomName(itemNode);
+  const bookInfo = getBookInfo(itemNode);
+  const potionName = getPotionName(itemNode);
   const contents = getContainerContents(itemNode);
-  div.className = 'slot' + (contents ? ' special' : '') + (enchants.length && !contents ? ' enchanted' : '');
-  div.title = (customName ? customName + ' — ' : '') + id + (count > 1 ? ` x${count}` : '');
+  const isEnchanted = enchants.length > 0 && !contents;
+  div.className = 'slot' + (contents ? ' special' : '') + (isEnchanted ? ' enchanted' : '');
+
+  // slot label: custom name > book title > potion name > humanized item name
+  let nameHtml, namePlain;
+  if (customName) { nameHtml = '“' + customName.html + '”'; namePlain = '“' + customName.plain + '”'; }
+  else if (bookInfo) { nameHtml = formatLegacyText(bookInfo.title); namePlain = bookInfo.title.replace(/§[0-9a-fk-or]/gi, ''); }
+  else if (potionName) { nameHtml = namePlain = escapeHtml(potionName); }
+  else { nameHtml = namePlain = escapeHtml(humanized); }
+  if (isEnchanted && !customName) nameHtml = `<span class="ench-glint">${nameHtml}</span>`;
+
+  div.title = namePlain + (namePlain !== humanized ? ` (${humanized})` : '') + (count > 1 ? ` ×${count}` : '');
   const texUrl = findTexture(rawId);
   const iconHtml = texUrl
     ? `<img class="icon-img" src="${texUrl}" alt="">`
@@ -656,7 +775,7 @@ function renderSlot(itemNode, slotIndex) {
     ${iconHtml}
     <span class="idx">${slotIndex}</span>
     <span class="cnt">${count > 1 ? 'x' + count : ''}</span>
-    <span class="name">${customName ? '“' + customName + '”' : id}</span>
+    <span class="name">${nameHtml}</span>
   `;
   const myId = 'detail-' + (detailCounter++);
   div.addEventListener('click', () => {
@@ -671,8 +790,9 @@ function renderSlot(itemNode, slotIndex) {
   const detail = document.createElement('div');
   detail.className = 'detail';
   detail.id = myId;
-  let html = `<div><span class="tag">${id}</span>${enchants.length ? enchants.map(e => `<span class="tag">✨ ${e}</span>`).join('') : ''}</div>`;
-  if (customName) html += `<div style="margin-top:8px;">Name: <b>${customName}</b></div>`;
+  let html = `<div style="font-size:14px; font-weight:700; margin-bottom:6px;">${nameHtml}</div>`;
+  html += `<div><span class="tag">${escapeHtml(id)}</span>${enchants.length ? enchants.map(e => `<span class="tag">✨ ${escapeHtml(e.name)} ${toRoman(e.level)}</span>`).join('') : ''}</div>`;
+  if (bookInfo) html += `<div style="margin-top:8px;">📖 <b>${formatLegacyText(bookInfo.title)}</b>${bookInfo.author ? ` <span style="color:var(--muted)">by ${formatLegacyText(bookInfo.author)}</span>` : ''}</div>`;
 
   if (contents && contents.length) {
     html += `<div class="nested"><div class="section-label" style="margin-top:0;">Container contents (${contents.length})</div></div>`;
@@ -856,7 +976,8 @@ function renderStats(rootNode) {
   html += statRow('Game mode', c['playerGameType'] !== undefined ? (gm[nodeNum(c['playerGameType'])] || nodeNum(c['playerGameType'])) : '—');
   html += statRow('Score', c['Score'] ? nodeNum(c['Score']) : '—');
   html += statRow('Selected hotbar slot', c['SelectedItemSlot'] !== undefined ? nodeNum(c['SelectedItemSlot']) : '—');
-  let dim = c['Dimension'] ? nodeStr(c['Dimension']).replace('minecraft:', '') : '—';
+  const DIM_NAMES = { 'minecraft:overworld': 'Overworld', 'minecraft:the_nether': 'The Nether', 'minecraft:the_end': 'The End' };
+  let dim = c['Dimension'] ? (DIM_NAMES[nodeStr(c['Dimension'])] || humanizeId(nodeStr(c['Dimension']))) : '—';
   html += statRow('🌍 Dimension', dim);
   const pos = listItems(c['Pos']);
   if (pos) html += statRow('📍 Position', pos.map(p => nodeNum(p).toFixed(1)).join(', '));
