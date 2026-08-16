@@ -2,127 +2,314 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Minecraft .dat Viewer</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%235a8a3c'/%3E%3Crect y='0' width='16' height='6' fill='%2377b34f'/%3E%3Crect y='6' width='16' height='10' fill='%236b4a2f'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #1e1e24; --panel: #2a2a33; --panel2: #33333e; --border: #44444f;
-    --text: #e8e8ec; --muted: #9a9aa5; --accent: #6fae4e; --accent2: #4e8dae;
-    --slot: #3a3a45; --slot-border: #55555f;
+    --bg-0: #14151a;
+    --bg-1: #191b21;
+    --panel: #1e2029;
+    --panel-2: #262936;
+    --border: #34394a;
+    --border-soft: #2a2d3a;
+    --text: #eceef4;
+    --muted: #8b90a3;
+    --muted-2: #666b7d;
+    --accent: #6dbf4b;
+    --accent-dim: #4a8a34;
+    --accent-glow: rgba(109, 191, 75, 0.35);
+    --gold: #e0b64e;
+    --blue: #5ea8d9;
+    --danger: #e2596b;
+    --slot-bg: #26262c;
+    --slot-bevel-lt: rgba(255,255,255,0.10);
+    --slot-bevel-dk: rgba(0,0,0,0.55);
+    --radius: 14px;
   }
   * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
   body {
-    margin: 0; font-family: -apple-system, Segoe UI, Roboto, sans-serif;
-    background: var(--bg); color: var(--text); min-height: 100vh;
+    margin: 0; font-family: 'Inter', -apple-system, Segoe UI, Roboto, sans-serif;
+    color: var(--text); min-height: 100vh;
+    background:
+      radial-gradient(circle at 15% 0%, rgba(109,191,75,0.08), transparent 40%),
+      radial-gradient(circle at 85% 15%, rgba(94,168,217,0.07), transparent 45%),
+      var(--bg-0);
+    background-attachment: fixed;
   }
-  header { padding: 16px 24px; background: var(--panel); border-bottom: 1px solid var(--border); }
-  h1 { margin: 0 0 4px; font-size: 20px; }
-  .sub { color: var(--muted); font-size: 13px; }
+  code { font-family: 'JetBrains Mono', monospace; background: #00000040; padding: 1px 6px; border-radius: 4px; font-size: 0.9em; }
+
+  header {
+    padding: 28px 32px 22px;
+    border-bottom: 1px solid var(--border-soft);
+    display: flex; align-items: center; gap: 16px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.02), transparent);
+  }
+  .logo-block {
+    width: 42px; height: 42px; border-radius: 8px; flex-shrink: 0;
+    background: linear-gradient(160deg, #7fcf58 0%, #5a8a3c 55%, #6b4a2f 55%, #55381f 100%);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.15), 0 4px 14px rgba(109,191,75,0.25);
+  }
+  h1 {
+    margin: 0 0 5px; font-size: 19px; letter-spacing: 0.02em; font-weight: 800;
+    font-family: 'Press Start 2P', 'Inter', monospace; line-height: 1.4;
+    background: linear-gradient(90deg, #eceef4, #b9e6a3);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .sub { color: var(--muted); font-size: 13px; max-width: 640px; line-height: 1.5; }
+
+  .container { max-width: 1180px; margin: 0 auto; padding: 0 32px 60px; }
+
   #dropzone {
-    margin: 16px 24px; padding: 30px; border: 2px dashed var(--border); border-radius: 10px;
-    text-align: center; color: var(--muted); cursor: pointer; transition: 0.15s;
+    margin: 22px 0 0; padding: 40px 24px; border: 2px dashed var(--border);
+    border-radius: var(--radius); text-align: center; cursor: pointer;
+    transition: 0.18s ease; background: var(--panel);
+    display: flex; flex-direction: column; align-items: center; gap: 10px;
   }
-  #dropzone.drag { border-color: var(--accent); color: var(--text); background: #2c3a28; }
+  #dropzone .dz-icon { font-size: 30px; opacity: 0.7; transition: 0.18s; }
+  #dropzone .dz-title { font-size: 15px; font-weight: 600; }
+  #dropzone .dz-hint { color: var(--muted-2); font-size: 12px; }
+  #dropzone:hover { border-color: var(--muted-2); }
+  #dropzone.drag { border-color: var(--accent); background: #1c2c19; box-shadow: 0 0 0 4px var(--accent-glow); }
+  #dropzone.drag .dz-icon { transform: scale(1.15); opacity: 1; }
+  #dropzone.busy { border-color: var(--blue); }
   #dropzone input { display: none; }
-  main { padding: 0 24px 40px; display: none; }
+
+  .packbar {
+    margin-top: 14px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    background: var(--panel); border: 1px solid var(--border-soft); border-radius: 10px;
+    padding: 10px 14px; font-size: 12.5px; color: var(--muted);
+  }
+  .packbar b { color: var(--text); }
+  .packbtn {
+    border: 1px solid var(--border); background: var(--panel-2); color: var(--text);
+    padding: 6px 13px; border-radius: 7px; font-size: 12.5px; font-weight: 600; cursor: pointer;
+    transition: 0.15s;
+  }
+  .packbtn:hover { border-color: var(--accent); color: var(--accent); }
+  .packbtn.clear { color: var(--danger); border-color: transparent; background: transparent; padding: 6px 8px; }
+  .packbtn.clear:hover { text-decoration: underline; }
+  .packbar .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted-2); flex-shrink: 0; }
+  .packbar.loaded .status-dot { background: var(--accent); box-shadow: 0 0 6px var(--accent-glow); }
+  .packbar .spacer { flex: 1; }
+
+  main { display: none; }
   main.show { display: block; }
-  .tabs { display: flex; gap: 4px; margin: 16px 0 0; border-bottom: 1px solid var(--border); }
-  .tab { padding: 8px 16px; cursor: pointer; color: var(--muted); border-bottom: 2px solid transparent; font-size: 14px; }
-  .tab.active { color: var(--text); border-color: var(--accent); }
-  .panel { display: none; padding: 16px 0; }
+
+  .tabs { display: flex; gap: 6px; margin: 26px 0 18px; flex-wrap: wrap; }
+  .tab {
+    padding: 8px 18px; cursor: pointer; color: var(--muted); font-size: 13.5px; font-weight: 600;
+    border-radius: 999px; border: 1px solid transparent; transition: 0.15s; user-select: none;
+  }
+  .tab:hover { color: var(--text); background: var(--panel-2); }
+  .tab.active { color: #0f1a0c; background: var(--accent); box-shadow: 0 2px 12px var(--accent-glow); }
+
+  .panel { display: none; animation: fadein 0.25s ease; }
   .panel.active { display: block; }
-  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 14px; }
-  .card h2 { margin: 0 0 12px; font-size: 15px; color: var(--accent2); }
-  .grid2 { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px 20px; }
-  .kv { display: flex; justify-content: space-between; padding: 3px 0; border-bottom: 1px dotted #3a3a45; font-size: 13px; }
+  @keyframes fadein { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+
+  .card {
+    background: var(--panel); border: 1px solid var(--border-soft); border-radius: var(--radius);
+    padding: 20px 22px; margin-bottom: 16px; position: relative; overflow: hidden;
+  }
+  .card::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, var(--accent), transparent 70%);
+    opacity: 0.7;
+  }
+  .card h2 {
+    margin: 0 0 16px; font-size: 12.5px; font-weight: 700; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.08em;
+  }
+
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 4px 24px; }
+  .kv { display: flex; justify-content: space-between; align-items: baseline; padding: 7px 0; border-bottom: 1px solid var(--border-soft); font-size: 13.5px; }
+  .kv:last-child { border-bottom: none; }
   .kv b { color: var(--muted); font-weight: 500; }
-  .kv span { text-align: right; }
-  .skin-row { display: flex; gap: 24px; align-items: flex-start; flex-wrap: wrap; }
-  .skin-row img { image-rendering: pixelated; background: #17171b; border-radius: 6px; border: 1px solid var(--border); }
-  .uuid-box { font-family: monospace; background: #17171b; padding: 8px 10px; border-radius: 6px; word-break: break-all; }
-  .links a { color: var(--accent2); display: block; margin-top: 6px; font-size: 13px; }
-  .invgrid { display: grid; grid-template-columns: repeat(9, 56px); gap: 4px; }
+  .kv span { text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  .skin-row { display: flex; gap: 28px; align-items: center; flex-wrap: wrap; }
+  .skin-portrait {
+    display: flex; gap: 16px; align-items: flex-end; padding: 14px;
+    background: radial-gradient(ellipse at 50% 100%, rgba(109,191,75,0.08), transparent 70%);
+    border-radius: 10px; border: 1px solid var(--border-soft);
+  }
+  .skin-portrait img { image-rendering: pixelated; display: block; }
+  #avatarImg { width: 88px; height: 88px; border-radius: 10px; border: 1px solid var(--border); background: #101116; }
+  #renderImg { height: 150px; width: auto; filter: drop-shadow(0 8px 16px rgba(0,0,0,0.5)); background: transparent; }
+  .identity-meta { flex: 1; min-width: 240px; }
+  .uuid-box {
+    font-family: 'JetBrains Mono', monospace; font-size: 13px; background: #101116;
+    padding: 10px 12px; border-radius: 8px; word-break: break-all; border: 1px solid var(--border-soft);
+    color: #cfd3e0;
+  }
+  .username-line { display: flex; align-items: center; justify-content: space-between; margin-top: 12px; font-size: 13.5px; }
+  .username-line b { color: var(--muted); font-weight: 500; }
+  .username-line .uname { font-weight: 700; font-size: 15px; }
+  .username-line .uname.pending { color: var(--muted-2); font-weight: 500; font-style: italic; font-size: 13px; }
+  .username-line .uname.offline { color: var(--gold); font-weight: 500; font-size: 12.5px; }
+  .links { display: flex; gap: 14px; margin-top: 12px; flex-wrap: wrap; }
+  .links a {
+    color: var(--blue); font-size: 12.5px; text-decoration: none; font-weight: 600;
+    display: inline-flex; align-items: center; gap: 4px;
+  }
+  .links a:hover { text-decoration: underline; }
+
+  .invgrid { display: grid; gap: 4px; }
+  .slot-9 { grid-template-columns: repeat(9, 54px); }
   .slot {
-    width: 56px; height: 56px; background: var(--slot); border: 1px solid var(--slot-border);
-    border-radius: 4px; position: relative; font-size: 9px; padding: 3px; overflow: hidden;
-    cursor: pointer; display: flex; flex-direction: column; justify-content: flex-end;
+    width: 54px; height: 54px; background: var(--slot-bg); border-radius: 5px; position: relative;
+    padding: 4px; overflow: hidden; cursor: pointer;
+    box-shadow: inset 2px 2px 0 var(--slot-bevel-lt), inset -2px -2px 0 var(--slot-bevel-dk);
+    transition: 0.1s; display: flex; align-items: flex-end;
   }
-  .slot:hover { outline: 1px solid var(--accent); }
-  .slot .idx { position: absolute; top: 2px; left: 3px; color: var(--muted); font-size: 8px; }
-  .slot .cnt { position: absolute; bottom: 2px; right: 3px; font-weight: bold; text-shadow: 1px 1px 0 #000; }
-  .slot .name { font-size: 8px; line-height: 1.1; color: #dfe; word-break: break-word; }
-  .slot.empty { opacity: 0.25; }
-  .slot.special { outline: 1px solid var(--accent2); }
-  .section-label { color: var(--muted); font-size: 12px; margin: 14px 0 6px; text-transform: uppercase; letter-spacing: 0.05em; }
+  .slot:hover { box-shadow: inset 2px 2px 0 var(--slot-bevel-lt), inset -2px -2px 0 var(--slot-bevel-dk), 0 0 0 2px var(--accent); z-index: 2; }
+  .slot .icon-chip {
+    position: absolute; top: 5px; left: 5px; width: 16px; height: 16px; border-radius: 4px;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.25), 0 1px 2px rgba(0,0,0,0.4);
+  }
+  .slot .icon-img {
+    position: absolute; top: 3px; left: 3px; width: 26px; height: 26px;
+    image-rendering: pixelated; image-rendering: crisp-edges;
+  }
+  .slot .idx { position: absolute; top: 4px; right: 5px; color: var(--muted-2); font-size: 8px; font-weight: 600; }
+  .slot .cnt {
+    position: absolute; bottom: 3px; right: 4px; font-weight: 800; font-size: 11px;
+    text-shadow: 1px 1px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000; color: #fff;
+  }
+  .slot .name { font-size: 8.5px; line-height: 1.15; color: #d7dae4; word-break: break-word; max-height: 26px; overflow: hidden; }
+  .slot.empty { box-shadow: inset 2px 2px 0 rgba(255,255,255,0.04), inset -2px -2px 0 rgba(0,0,0,0.3); cursor: default; }
+  .slot.empty:hover { box-shadow: inset 2px 2px 0 rgba(255,255,255,0.04), inset -2px -2px 0 rgba(0,0,0,0.3); }
+  .slot.special { box-shadow: inset 2px 2px 0 var(--slot-bevel-lt), inset -2px -2px 0 var(--slot-bevel-dk), 0 0 0 1px var(--gold); }
+  .slot.enchanted { box-shadow: inset 2px 2px 0 var(--slot-bevel-lt), inset -2px -2px 0 var(--slot-bevel-dk), 0 0 0 1px var(--blue); }
+
+  .section-label { color: var(--muted-2); font-size: 11px; margin: 18px 0 8px; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700; }
+  .section-label:first-child { margin-top: 0; }
+
   .detail {
-    display: none; background: #17171b; border: 1px solid var(--border); border-radius: 6px;
-    padding: 10px; margin-top: 10px; font-size: 12px;
+    display: none; background: #101116; border: 1px solid var(--border-soft); border-radius: 8px;
+    padding: 14px; margin-top: 8px; margin-bottom: 4px; font-size: 12.5px; grid-column: 1 / -1;
   }
-  .detail.show { display: block; }
-  .detail pre { white-space: pre-wrap; word-break: break-word; margin: 4px 0; max-height: 300px; overflow: auto; }
-  .nested { margin-top: 8px; padding-left: 10px; border-left: 2px solid var(--accent); }
-  .tag { display: inline-block; background: #3a3a45; padding: 1px 6px; border-radius: 10px; font-size: 11px; margin-right: 4px; color: #cde; }
-  .empty-msg { color: var(--muted); font-size: 13px; padding: 20px; text-align: center; }
-  #rawtree { font-family: monospace; font-size: 12px; white-space: pre; }
-  .err { background: #4a2828; border: 1px solid #7a3a3a; color: #f5c; padding: 10px 14px; border-radius: 6px; margin: 16px 24px; }
+  .detail.show { display: block; animation: fadein 0.15s ease; }
+  .detail pre {
+    white-space: pre-wrap; word-break: break-word; margin: 8px 0 0; max-height: 320px; overflow: auto;
+    font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #a9afc2; line-height: 1.5;
+  }
+  .nested { margin-top: 10px; padding: 10px 0 0 12px; border-left: 2px solid var(--accent-dim); }
+  .tag {
+    display: inline-block; background: var(--panel-2); padding: 2px 9px; border-radius: 999px;
+    font-size: 11px; margin: 2px 4px 2px 0; color: #cde; border: 1px solid var(--border-soft); font-weight: 600;
+  }
+  .empty-msg { color: var(--muted-2); font-size: 13px; padding: 30px; text-align: center; }
+  #rawtree {
+    font-family: 'JetBrains Mono', monospace; font-size: 12px; white-space: pre; overflow-x: auto;
+    line-height: 1.6; color: #b7bccc; max-height: 70vh; overflow-y: auto;
+  }
+  .err {
+    background: #2e161c; border: 1px solid #6b2f3c; color: #f3a8b6; padding: 14px 18px;
+    border-radius: 10px; margin: 18px 0 0; font-size: 13.5px; line-height: 1.5;
+  }
+  footer { text-align: center; color: var(--muted-2); font-size: 12px; padding: 30px 0 10px; }
+  footer a { color: var(--muted); }
+
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 6px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--muted-2); }
+
+  @media (max-width: 640px) {
+    .container { padding: 0 16px 40px; }
+    header { padding: 20px 16px; }
+    .slot-9 { grid-template-columns: repeat(9, 32px); }
+    .slot { width: 32px; height: 32px; }
+    .slot .name { display: none; }
+    #renderImg { height: 110px; }
+  }
 </style>
 </head>
 <body>
 
 <header>
-  <h1>Minecraft .dat Viewer</h1>
-  <div class="sub">Load a player <code>&lt;uuid&gt;.dat</code> file (from <code>world/playerdata/</code>) — parsed entirely in your browser, nothing is uploaded anywhere.</div>
+  <div class="logo-block"></div>
+  <div>
+    <h1>.dat Viewer</h1>
+    <div class="sub">Load a player <code>&lt;uuid&gt;.dat</code> file from <code>world/playerdata/</code> — parsed entirely in your browser. Nothing is uploaded anywhere.</div>
+  </div>
 </header>
 
-<div id="dropzone">
-  <div>Drop a <b>.dat</b> file here, or click to browse</div>
-  <input type="file" id="fileInput" accept=".dat">
-</div>
-
-<div id="errbox"></div>
-
-<main id="main">
-  <div class="tabs">
-    <div class="tab active" data-tab="info">Player Info</div>
-    <div class="tab" data-tab="inv">Inventory</div>
-    <div class="tab" data-tab="ender">Ender Chest</div>
-    <div class="tab" data-tab="raw">Raw NBT</div>
+<div class="container">
+  <div id="dropzone">
+    <div class="dz-icon">📦</div>
+    <div class="dz-title">Drop a <b>.dat</b> file here, or click to browse</div>
+    <div class="dz-hint">Also accepts <code>.dat_old</code> backups</div>
+    <input type="file" id="fileInput" accept=".dat,.dat_old,.dat_new">
   </div>
 
-  <div class="panel active" id="panel-info">
-    <div class="card">
-      <h2>Identity &amp; Skin</h2>
-      <div class="skin-row">
-        <img id="avatarImg" width="100" height="100" alt="face">
-        <img id="renderImg" width="140" alt="body render">
-        <div style="flex:1; min-width:220px;">
-          <div class="kv"><b>UUID</b></div>
-          <div class="uuid-box" id="uuidBox">—</div>
-          <div class="kv" style="margin-top:8px;"><b>Username</b><span id="usernameSpan">looking up…</span></div>
-          <div class="links">
-            <a id="namemcLink" target="_blank" rel="noopener">View on NameMC ↗</a>
-            <a id="skinLink" target="_blank" rel="noopener">Open raw skin texture ↗</a>
+  <div class="packbar" id="packbar">
+    <span class="status-dot"></span>
+    <span id="packStatus">No resource pack loaded — item icons shown as colored placeholders</span>
+    <span class="spacer"></span>
+    <button class="packbtn" id="packFolderBtn" type="button">📁 Choose texture pack folder</button>
+    <button class="packbtn" id="packZipBtn" type="button">🗜️ Choose .zip resource pack</button>
+    <button class="packbtn clear" id="packClearBtn" type="button" style="display:none;">Clear</button>
+    <input type="file" id="packFolderInput" webkitdirectory directory multiple style="display:none;">
+    <input type="file" id="packZipInput" accept=".zip" style="display:none;">
+  </div>
+
+  <div id="errbox"></div>
+
+  <main id="main">
+    <div class="tabs">
+      <div class="tab active" data-tab="info">Player Info</div>
+      <div class="tab" data-tab="inv">Inventory</div>
+      <div class="tab" data-tab="ender">Ender Chest</div>
+      <div class="tab" data-tab="raw">Raw NBT</div>
+    </div>
+
+    <div class="panel active" id="panel-info">
+      <div class="card">
+        <h2>Identity &amp; Skin</h2>
+        <div class="skin-row">
+          <div class="skin-portrait">
+            <img id="avatarImg" width="88" height="88" alt="face">
+            <img id="renderImg" alt="body render">
+          </div>
+          <div class="identity-meta">
+            <div class="kv" style="border:none; padding-bottom:4px;"><b>UUID</b></div>
+            <div class="uuid-box" id="uuidBox">—</div>
+            <div class="username-line"><b>Username</b><span class="uname pending" id="usernameSpan">looking up…</span></div>
+            <div class="links">
+              <a id="namemcLink" target="_blank" rel="noopener">View on NameMC ↗</a>
+              <a id="skinLink" target="_blank" rel="noopener">Open raw skin texture ↗</a>
+            </div>
           </div>
         </div>
       </div>
+      <div class="card">
+        <h2>Stats</h2>
+        <div class="grid2" id="statsGrid"></div>
+      </div>
     </div>
-    <div class="card">
-      <h2>Stats</h2>
-      <div class="grid2" id="statsGrid"></div>
+
+    <div class="panel" id="panel-inv">
+      <div id="invContent"></div>
     </div>
-  </div>
 
-  <div class="panel" id="panel-inv">
-    <div id="invContent"></div>
-  </div>
+    <div class="panel" id="panel-ender">
+      <div id="enderContent"></div>
+    </div>
 
-  <div class="panel" id="panel-ender">
-    <div id="enderContent"></div>
-  </div>
+    <div class="panel" id="panel-raw">
+      <div class="card"><div id="rawtree"></div></div>
+    </div>
+  </main>
 
-  <div class="panel" id="panel-raw">
-    <div class="card"><div id="rawtree"></div></div>
-  </div>
-</main>
+  <footer>Runs 100% client-side · skin renders via mc-heads.net · profile lookups via playerdb.co</footer>
+</div>
 
 <script>
 /* ---------------- NBT parsing ---------------- */
@@ -355,6 +542,95 @@ function getContainerContents(itemNode) {
   return null;
 }
 
+/* ---------------- deterministic pseudo-icon color per item id ---------------- */
+function idColor(id) {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  const hue = h % 360;
+  return `hsl(${hue}, 46%, ${id.includes('shulker') ? 55 : 42}%)`;
+}
+
+/* ---------------- resource pack (texture) loading ---------------- */
+const texturePack = new Map(); // "item/diamond_sword.png" -> object URL
+let currentRoot = null; // parsed NBT root of the currently loaded .dat, for re-rendering when a pack loads
+
+// covers block-colored variants (e.g. white_wool -> wool + dye) is out of scope; direct 1:1 name match only.
+function findTexture(rawId) {
+  const name = rawId.replace('minecraft:', '').toLowerCase();
+  return texturePack.get('item/' + name + '.png')
+      || texturePack.get('block/' + name + '.png')
+      || null;
+}
+
+function ensureJSZip() {
+  if (window.JSZip) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js';
+    s.onload = () => resolve();
+    s.onerror = () => reject(new Error('Could not load unzip library (jsDelivr unreachable)'));
+    document.head.appendChild(s);
+  });
+}
+
+const TEX_PATH_RE = /assets\/minecraft\/textures\/(item|block)\/([^\/]+\.png)$/i;
+
+function updatePackStatus(count) {
+  const bar = document.getElementById('packbar');
+  const status = document.getElementById('packStatus');
+  const clearBtn = document.getElementById('packClearBtn');
+  if (count > 0) {
+    bar.classList.add('loaded');
+    status.innerHTML = `<b>${count}</b> item/block textures loaded — icons will use them where names match`;
+    clearBtn.style.display = '';
+  } else {
+    bar.classList.remove('loaded');
+    status.textContent = 'No resource pack loaded — item icons shown as colored placeholders';
+    clearBtn.style.display = 'none';
+  }
+}
+
+function refreshRendering() {
+  if (!currentRoot) return;
+  renderInventoryPanel(document.getElementById('invContent'), currentRoot, 'Inventory', 'Inventory');
+  renderInventoryPanel(document.getElementById('enderContent'), currentRoot, 'EnderItems', 'Ender Chest');
+}
+
+async function loadFolderPack(fileList) {
+  for (const url of texturePack.values()) URL.revokeObjectURL(url);
+  texturePack.clear();
+  let count = 0;
+  for (const file of fileList) {
+    const path = (file.webkitRelativePath || file.name).replace(/\\/g, '/');
+    const m = path.match(TEX_PATH_RE);
+    if (m) {
+      texturePack.set(m[1] + '/' + m[2].toLowerCase(), URL.createObjectURL(file));
+      count++;
+    }
+  }
+  updatePackStatus(count);
+  refreshRendering();
+}
+
+async function loadZipPack(file) {
+  const status = document.getElementById('packStatus');
+  status.textContent = 'Unpacking ' + file.name + '…';
+  await ensureJSZip();
+  const zip = await JSZip.loadAsync(file);
+  for (const url of texturePack.values()) URL.revokeObjectURL(url);
+  texturePack.clear();
+  let count = 0;
+  const entries = Object.values(zip.files).filter(e => !e.dir && TEX_PATH_RE.test(e.name));
+  for (const entry of entries) {
+    const m = entry.name.match(TEX_PATH_RE);
+    const blob = await entry.async('blob');
+    texturePack.set(m[1] + '/' + m[2].toLowerCase(), URL.createObjectURL(blob));
+    count++;
+  }
+  updatePackStatus(count);
+  refreshRendering();
+}
+
 /* ---------------- rendering ---------------- */
 let detailCounter = 0;
 function renderSlot(itemNode, slotIndex) {
@@ -364,13 +640,20 @@ function renderSlot(itemNode, slotIndex) {
     div.innerHTML = `<span class="idx">${slotIndex}</span>`;
     return div;
   }
-  const id = (getItemId(itemNode) || '?').replace('minecraft:', '');
+  const rawId = getItemId(itemNode) || '?';
+  const id = rawId.replace('minecraft:', '');
   const count = getItemCount(itemNode);
   const enchants = getEnchants(itemNode);
   const customName = getCustomName(itemNode);
   const contents = getContainerContents(itemNode);
-  div.className = 'slot' + (contents ? ' special' : '');
+  div.className = 'slot' + (contents ? ' special' : '') + (enchants.length && !contents ? ' enchanted' : '');
+  div.title = (customName ? customName + ' — ' : '') + id + (count > 1 ? ` x${count}` : '');
+  const texUrl = findTexture(rawId);
+  const iconHtml = texUrl
+    ? `<img class="icon-img" src="${texUrl}" alt="">`
+    : `<span class="icon-chip" style="background:${idColor(rawId)}"></span>`;
   div.innerHTML = `
+    ${iconHtml}
     <span class="idx">${slotIndex}</span>
     <span class="cnt">${count > 1 ? 'x' + count : ''}</span>
     <span class="name">${customName ? '“' + customName + '”' : id}</span>
@@ -382,13 +665,14 @@ function renderSlot(itemNode, slotIndex) {
   });
 
   const wrapper = document.createElement('div');
+  wrapper.style.display = 'contents';
   wrapper.appendChild(div);
 
   const detail = document.createElement('div');
   detail.className = 'detail';
   detail.id = myId;
-  let html = `<div><span class="tag">${id}</span>${enchants.length ? enchants.map(e => `<span class="tag">${e}</span>`).join('') : ''}</div>`;
-  if (customName) html += `<div style="margin-top:6px;">Name: <b>${customName}</b></div>`;
+  let html = `<div><span class="tag">${id}</span>${enchants.length ? enchants.map(e => `<span class="tag">✨ ${e}</span>`).join('') : ''}</div>`;
+  if (customName) html += `<div style="margin-top:8px;">Name: <b>${customName}</b></div>`;
 
   if (contents && contents.length) {
     html += `<div class="nested"><div class="section-label" style="margin-top:0;">Container contents (${contents.length})</div></div>`;
@@ -398,7 +682,7 @@ function renderSlot(itemNode, slotIndex) {
 
   if (contents && contents.length) {
     const nestedGrid = document.createElement('div');
-    nestedGrid.className = 'invgrid';
+    nestedGrid.className = 'invgrid slot-9';
     nestedGrid.style.marginTop = '6px';
     const bySlot = {};
     contents.forEach(c => bySlot[c.slot] = c.item);
@@ -419,7 +703,7 @@ function renderInventoryPanel(container, rootNode, listKey, title) {
   card.className = 'card';
   card.innerHTML = `<h2>${title}</h2>`;
   if (!items || items.length === 0) {
-    card.innerHTML += `<div class="empty-msg">No items / empty</div>`;
+    card.innerHTML += `<div class="empty-msg">No items — empty</div>`;
     container.appendChild(card);
     return;
   }
@@ -434,18 +718,18 @@ function renderInventoryPanel(container, rootNode, listKey, title) {
     wrap.innerHTML = `<div class="section-label">${label}</div>`;
     const grid = document.createElement('div');
     grid.className = 'invgrid';
-    grid.style.gridTemplateColumns = `repeat(${slots.length}, 56px)`;
+    grid.style.gridTemplateColumns = `repeat(${slots.length}, 54px)`;
     for (const s of slots) grid.appendChild(renderSlot(bySlot[s], s));
     wrap.appendChild(grid);
     return wrap;
   }
 
   if (listKey === 'Inventory') {
-    card.appendChild(buildRow('Hotbar (0-8)', [0,1,2,3,4,5,6,7,8]));
+    card.appendChild(buildRow('Hotbar (0–8)', [0,1,2,3,4,5,6,7,8]));
     const main = []; for (let i = 9; i <= 35; i++) main.push(i);
-    card.appendChild(buildRow('Main inventory (9-35)', main));
-    card.appendChild(buildRow('Armor (100-103: boots,legs,chest,helmet)', [100,101,102,103]));
-    card.appendChild(buildRow('Offhand (-106)', [-106]));
+    card.appendChild(buildRow('Main inventory (9–35)', main));
+    card.appendChild(buildRow('Armor (100–103: boots · legs · chest · helmet)', [100,101,102,103]));
+    card.appendChild(buildRow('Offhand', [-106]));
   } else {
     const all = Object.keys(bySlot).map(Number).sort((a,b)=>a-b);
     const max = Math.max(...all, 26);
@@ -513,8 +797,12 @@ async function setupIdentity(rootNode, filename) {
   const namemcLink = document.getElementById('namemcLink');
   const skinLink = document.getElementById('skinLink');
 
+  usernameSpan.className = 'uname pending';
+  usernameSpan.textContent = 'looking up…';
+
   if (!uuid) {
     uuidBox.textContent = 'Could not determine UUID (filename is not a UUID and no UUID tag found)';
+    usernameSpan.className = 'uname offline';
     usernameSpan.textContent = '—';
     avatarImg.style.display = 'none';
     renderImg.style.display = 'none';
@@ -522,23 +810,31 @@ async function setupIdentity(rootNode, filename) {
     skinLink.style.display = 'none';
     return;
   }
+  avatarImg.style.display = '';
+  renderImg.style.display = '';
+  namemcLink.style.display = '';
+  skinLink.style.display = '';
+
   uuidBox.textContent = uuid;
   const noDash = uuid.replace(/-/g, '');
-  avatarImg.src = `https://crafatar.com/avatars/${noDash}?size=100&overlay`;
-  renderImg.src = `https://crafatar.com/renders/body/${noDash}?overlay`;
+  avatarImg.src = `https://mc-heads.net/avatar/${noDash}/88`;
+  renderImg.src = `https://mc-heads.net/player/${noDash}/150`;
   namemcLink.href = `https://namemc.com/profile/${noDash}`;
-  skinLink.href = `https://crafatar.com/skins/${noDash}`;
+  skinLink.href = `https://mc-heads.net/skin/${noDash}`;
 
   try {
-    const resp = await fetch(`https://sessionserver.mojang.com/session/minecraft/profile/${noDash}`);
-    if (resp.ok) {
-      const data = await resp.json();
-      usernameSpan.textContent = data.name || '(unknown)';
+    const resp = await fetch(`https://playerdb.co/api/player/minecraft/${noDash}`);
+    const data = await resp.json();
+    if (resp.ok && data && data.code === 'player.found') {
+      usernameSpan.className = 'uname';
+      usernameSpan.textContent = data.data.player.username;
     } else {
-      usernameSpan.textContent = '(lookup failed — offline-mode UUID or API unreachable)';
+      usernameSpan.className = 'uname offline';
+      usernameSpan.textContent = 'no Mojang account found (offline-mode / cracked UUID)';
     }
   } catch (e) {
-    usernameSpan.textContent = '(lookup failed — network/CORS)';
+    usernameSpan.className = 'uname offline';
+    usernameSpan.textContent = 'lookup failed (network unreachable)';
   }
 }
 
@@ -551,20 +847,21 @@ function renderStats(rootNode) {
   const c = comp(rootNode) || {};
   let html = '';
   const health = c['Health'] ? nodeNum(c['Health']).toFixed(1) : '—';
-  html += statRow('Health', health);
-  html += statRow('Food level', c['foodLevel'] ? nodeNum(c['foodLevel']) : '—');
+  html += statRow('❤️ Health', health);
+  html += statRow('🍗 Food level', c['foodLevel'] ? nodeNum(c['foodLevel']) : '—');
   html += statRow('Saturation', c['foodSaturationLevel'] ? nodeNum(c['foodSaturationLevel']).toFixed(1) : '—');
-  html += statRow('XP level', c['XpLevel'] ? nodeNum(c['XpLevel']) : '—');
+  html += statRow('⭐ XP level', c['XpLevel'] ? nodeNum(c['XpLevel']) : '—');
   html += statRow('XP total', c['XpTotal'] ? nodeNum(c['XpTotal']) : '—');
-  html += statRow('Game mode', c['playerGameType'] !== undefined ? nodeNum(c['playerGameType']) : '—');
+  const gm = ['Survival','Creative','Adventure','Spectator'];
+  html += statRow('Game mode', c['playerGameType'] !== undefined ? (gm[nodeNum(c['playerGameType'])] || nodeNum(c['playerGameType'])) : '—');
   html += statRow('Score', c['Score'] ? nodeNum(c['Score']) : '—');
   html += statRow('Selected hotbar slot', c['SelectedItemSlot'] !== undefined ? nodeNum(c['SelectedItemSlot']) : '—');
-  let dim = c['Dimension'] ? nodeStr(c['Dimension']) : '—';
-  html += statRow('Dimension', dim);
+  let dim = c['Dimension'] ? nodeStr(c['Dimension']).replace('minecraft:', '') : '—';
+  html += statRow('🌍 Dimension', dim);
   const pos = listItems(c['Pos']);
-  if (pos) html += statRow('Position', pos.map(p => nodeNum(p).toFixed(1)).join(', '));
+  if (pos) html += statRow('📍 Position', pos.map(p => nodeNum(p).toFixed(1)).join(', '));
   const air = c['Air'] ? nodeNum(c['Air']) : null;
-  if (air !== null) html += statRow('Air', air);
+  if (air !== null) html += statRow('💨 Air', air);
   const onGround = c['OnGround'];
   if (onGround) html += statRow('On ground', nodeNum(onGround) ? 'yes' : 'no');
   const invuln = c['Invulnerable'];
@@ -595,6 +892,8 @@ const dropzone = document.getElementById('dropzone');
 const fileInput = document.getElementById('fileInput');
 const mainEl = document.getElementById('main');
 const errbox = document.getElementById('errbox');
+const dzTitle = dropzone.querySelector('.dz-title');
+const dzIcon = dropzone.querySelector('.dz-icon');
 
 dropzone.addEventListener('click', () => fileInput.click());
 dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('drag'); });
@@ -605,24 +904,66 @@ dropzone.addEventListener('drop', e => {
 });
 fileInput.addEventListener('change', e => { if (e.target.files.length) loadFile(e.target.files[0]); });
 
+const packFolderBtn = document.getElementById('packFolderBtn');
+const packZipBtn = document.getElementById('packZipBtn');
+const packClearBtn = document.getElementById('packClearBtn');
+const packFolderInput = document.getElementById('packFolderInput');
+const packZipInput = document.getElementById('packZipInput');
+const packStatus = document.getElementById('packStatus');
+
+packFolderBtn.addEventListener('click', () => packFolderInput.click());
+packZipBtn.addEventListener('click', () => packZipInput.click());
+packFolderInput.addEventListener('change', e => {
+  if (e.target.files.length) loadFolderPack(e.target.files);
+  else packStatus.textContent = 'No textures found in that folder — expected assets/minecraft/textures/item|block/*.png';
+});
+packZipInput.addEventListener('change', async e => {
+  if (!e.target.files.length) return;
+  try {
+    await loadZipPack(e.target.files[0]);
+  } catch (err) {
+    console.error(err);
+    packStatus.textContent = 'Failed to read zip: ' + (err.message || err);
+  }
+});
+packClearBtn.addEventListener('click', () => {
+  for (const url of texturePack.values()) URL.revokeObjectURL(url);
+  texturePack.clear();
+  updatePackStatus(0);
+  refreshRendering();
+  packFolderInput.value = '';
+  packZipInput.value = '';
+});
+
 async function loadFile(file) {
   errbox.innerHTML = '';
+  dropzone.classList.add('busy');
+  dzIcon.textContent = '⏳';
+  dzTitle.innerHTML = `Parsing <b>${escapeHtml(file.name)}</b>…`;
   try {
     const buf = new Uint8Array(await file.arrayBuffer());
     const raw = await decompressIfNeeded(buf);
     const reader = new NBTReader(raw);
     const { node } = reader.readRoot();
+    currentRoot = node;
 
-    await setupIdentity(node, file.name);
     renderStats(node);
     renderInventoryPanel(document.getElementById('invContent'), node, 'Inventory', 'Inventory');
     renderInventoryPanel(document.getElementById('enderContent'), node, 'EnderItems', 'Ender Chest');
     document.getElementById('rawtree').textContent = renderRawTree(node);
-
     mainEl.classList.add('show');
+
+    dzIcon.textContent = '✅';
+    dzTitle.innerHTML = `Loaded <b>${escapeHtml(file.name)}</b> — drop another file to replace it`;
+
+    await setupIdentity(node, file.name);
   } catch (err) {
     console.error(err);
-    errbox.innerHTML = `<div class="err">Failed to parse file: ${escapeHtml(err.message || String(err))}<br>Make sure this is a valid, uncorrupted player .dat file.</div>`;
+    dzIcon.textContent = '📦';
+    dzTitle.innerHTML = 'Drop a <b>.dat</b> file here, or click to browse';
+    errbox.innerHTML = `<div class="err">⚠️ Failed to parse file: ${escapeHtml(err.message || String(err))}<br>Make sure this is a valid, uncorrupted player .dat file.</div>`;
+  } finally {
+    dropzone.classList.remove('busy');
   }
 }
 </script>
