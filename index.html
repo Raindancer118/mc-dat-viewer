@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Minecraft .dat Viewer</title>
+<style>
+  :root {
+    --bg: #1e1e24; --panel: #2a2a33; --panel2: #33333e; --border: #44444f;
+    --text: #e8e8ec; --muted: #9a9aa5; --accent: #6fae4e; --accent2: #4e8dae;
+    --slot: #3a3a45; --slot-border: #55555f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: -apple-system, Segoe UI, Roboto, sans-serif;
+    background: var(--bg); color: var(--text); min-height: 100vh;
+  }
+  header { padding: 16px 24px; background: var(--panel); border-bottom: 1px solid var(--border); }
+  h1 { margin: 0 0 4px; font-size: 20px; }
+  .sub { color: var(--muted); font-size: 13px; }
+  #dropzone {
+    margin: 16px 24px; padding: 30px; border: 2px dashed var(--border); border-radius: 10px;
+    text-align: center; color: var(--muted); cursor: pointer; transition: 0.15s;
+  }
+  #dropzone.drag { border-color: var(--accent); color: var(--text); background: #2c3a28; }
+  #dropzone input { display: none; }
+  main { padding: 0 24px 40px; display: none; }
+  main.show { display: block; }
+  .tabs { display: flex; gap: 4px; margin: 16px 0 0; border-bottom: 1px solid var(--border); }
+  .tab { padding: 8px 16px; cursor: pointer; color: var(--muted); border-bottom: 2px solid transparent; font-size: 14px; }
+  .tab.active { color: var(--text); border-color: var(--accent); }
+  .panel { display: none; padding: 16px 0; }
+  .panel.active { display: block; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 14px; }
+  .card h2 { margin: 0 0 12px; font-size: 15px; color: var(--accent2); }
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px 20px; }
+  .kv { display: flex; justify-content: space-between; padding: 3px 0; border-bottom: 1px dotted #3a3a45; font-size: 13px; }
+  .kv b { color: var(--muted); font-weight: 500; }
+  .kv span { text-align: right; }
+  .skin-row { display: flex; gap: 24px; align-items: flex-start; flex-wrap: wrap; }
+  .skin-row img { image-rendering: pixelated; background: #17171b; border-radius: 6px; border: 1px solid var(--border); }
+  .uuid-box { font-family: monospace; background: #17171b; padding: 8px 10px; border-radius: 6px; word-break: break-all; }
+  .links a { color: var(--accent2); display: block; margin-top: 6px; font-size: 13px; }
+  .invgrid { display: grid; grid-template-columns: repeat(9, 56px); gap: 4px; }
+  .slot {
+    width: 56px; height: 56px; background: var(--slot); border: 1px solid var(--slot-border);
+    border-radius: 4px; position: relative; font-size: 9px; padding: 3px; overflow: hidden;
+    cursor: pointer; display: flex; flex-direction: column; justify-content: flex-end;
+  }
+  .slot:hover { outline: 1px solid var(--accent); }
+  .slot .idx { position: absolute; top: 2px; left: 3px; color: var(--muted); font-size: 8px; }
+  .slot .cnt { position: absolute; bottom: 2px; right: 3px; font-weight: bold; text-shadow: 1px 1px 0 #000; }
+  .slot .name { font-size: 8px; line-height: 1.1; color: #dfe; word-break: break-word; }
+  .slot.empty { opacity: 0.25; }
+  .slot.special { outline: 1px solid var(--accent2); }
+  .section-label { color: var(--muted); font-size: 12px; margin: 14px 0 6px; text-transform: uppercase; letter-spacing: 0.05em; }
+  .detail {
+    display: none; background: #17171b; border: 1px solid var(--border); border-radius: 6px;
+    padding: 10px; margin-top: 10px; font-size: 12px;
+  }
+  .detail.show { display: block; }
+  .detail pre { white-space: pre-wrap; word-break: break-word; margin: 4px 0; max-height: 300px; overflow: auto; }
+  .nested { margin-top: 8px; padding-left: 10px; border-left: 2px solid var(--accent); }
+  .tag { display: inline-block; background: #3a3a45; padding: 1px 6px; border-radius: 10px; font-size: 11px; margin-right: 4px; color: #cde; }
+  .empty-msg { color: var(--muted); font-size: 13px; padding: 20px; text-align: center; }
+  #rawtree { font-family: monospace; font-size: 12px; white-space: pre; }
+  .err { background: #4a2828; border: 1px solid #7a3a3a; color: #f5c; padding: 10px 14px; border-radius: 6px; margin: 16px 24px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Minecraft .dat Viewer</h1>
+  <div class="sub">Load a player <code>&lt;uuid&gt;.dat</code> file (from <code>world/playerdata/</code>) — parsed entirely in your browser, nothing is uploaded anywhere.</div>
+</header>
+
+<div id="dropzone">
+  <div>Drop a <b>.dat</b> file here, or click to browse</div>
+  <input type="file" id="fileInput" accept=".dat">
+</div>
+
+<div id="errbox"></div>
+
+<main id="main">
+  <div class="tabs">
+    <div class="tab active" data-tab="info">Player Info</div>
+    <div class="tab" data-tab="inv">Inventory</div>
+    <div class="tab" data-tab="ender">Ender Chest</div>
+    <div class="tab" data-tab="raw">Raw NBT</div>
+  </div>
+
+  <div class="panel active" id="panel-info">
+    <div class="card">
+      <h2>Identity &amp; Skin</h2>
+      <div class="skin-row">
+        <img id="avatarImg" width="100" height="100" alt="face">
+        <img id="renderImg" width="140" alt="body render">
+        <div style="flex:1; min-width:220px;">
+          <div class="kv"><b>UUID</b></div>
+          <div class="uuid-box" id="uuidBox">—</div>
+          <div class="kv" style="margin-top:8px;"><b>Username</b><span id="usernameSpan">looking up…</span></div>
+          <div class="links">
+            <a id="namemcLink" target="_blank" rel="noopener">View on NameMC ↗</a>
+            <a id="skinLink" target="_blank" rel="noopener">Open raw skin texture ↗</a>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Stats</h2>
+      <div class="grid2" id="statsGrid"></div>
+    </div>
+  </div>
+
+  <div class="panel" id="panel-inv">
+    <div id="invContent"></div>
+  </div>
+
+  <div class="panel" id="panel-ender">
+    <div id="enderContent"></div>
+  </div>
+
+  <div class="panel" id="panel-raw">
+    <div class="card"><div id="rawtree"></div></div>
+  </div>
+</main>
+
+<script>
+/* ---------------- NBT parsing ---------------- */
+const TAG = { End:0, Byte:1, Short:2, Int:3, Long:4, Float:5, Double:6,
+  ByteArray:7, String:8, List:9, Compound:10, IntArray:11, LongArray:12 };
+
+class NBTReader {
+  constructor(bytes) {
+    this.view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    this.pos = 0;
+    this.decoder = new TextDecoder('utf-8');
+  }
+  readByte() { const v = this.view.getInt8(this.pos); this.pos += 1; return v; }
+  readUByte() { const v = this.view.getUint8(this.pos); this.pos += 1; return v; }
+  readShort() { const v = this.view.getInt16(this.pos, false); this.pos += 2; return v; }
+  readUShort() { const v = this.view.getUint16(this.pos, false); this.pos += 2; return v; }
+  readInt() { const v = this.view.getInt32(this.pos, false); this.pos += 4; return v; }
+  readLong() { const v = this.view.getBigInt64(this.pos, false); this.pos += 8; return v; }
+  readFloat() { const v = this.view.getFloat32(this.pos, false); this.pos += 4; return v; }
+  readDouble() { const v = this.view.getFloat64(this.pos, false); this.pos += 8; return v; }
+  readString() {
+    const len = this.readUShort();
+    const bytes = new Uint8Array(this.view.buffer, this.view.byteOffset + this.pos, len);
+    this.pos += len;
+    return this.decoder.decode(bytes);
+  }
+  readPayload(type) {
+    switch (type) {
+      case TAG.Byte: return this.readByte();
+      case TAG.Short: return this.readShort();
+      case TAG.Int: return this.readInt();
+      case TAG.Long: return this.readLong();
+      case TAG.Float: return this.readFloat();
+      case TAG.Double: return this.readDouble();
+      case TAG.ByteArray: {
+        const len = this.readInt(); const arr = [];
+        for (let i = 0; i < len; i++) arr.push(this.readByte());
+        return arr;
+      }
+      case TAG.String: return this.readString();
+      case TAG.List: {
+        const elemType = this.readUByte();
+        const len = this.readInt();
+        const arr = [];
+        for (let i = 0; i < len; i++) arr.push({ type: elemType, value: this.readPayload(elemType) });
+        return { elemType, items: arr };
+      }
+      case TAG.Compound: {
+        const obj = {};
+        while (true) {
+          const t = this.readUByte();
+          if (t === TAG.End) break;
+          const name = this.readString();
+          obj[name] = { type: t, value: this.readPayload(t) };
+        }
+        return obj;
+      }
+      case TAG.IntArray: {
+        const len = this.readInt(); const arr = [];
+        for (let i = 0; i < len; i++) arr.push(this.readInt());
+        return arr;
+      }
+      case TAG.LongArray: {
+        const len = this.readInt(); const arr = [];
+        for (let i = 0; i < len; i++) arr.push(this.readLong());
+        return arr;
+      }
+      default: throw new Error('Unknown NBT tag type ' + type);
+    }
+  }
+  readRoot() {
+    const type = this.readUByte();
+    const name = this.readString();
+    const value = this.readPayload(type);
+    return { name, node: { type, value } };
+  }
+}
+
+async function decompressIfNeeded(bytes) {
+  if (bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b) {
+    const ds = new DecompressionStream('gzip');
+    const stream = new Blob([bytes]).stream().pipeThrough(ds);
+    const buf = await new Response(stream).arrayBuffer();
+    return new Uint8Array(buf);
+  }
+  if (bytes.length >= 2 && (bytes[0] & 0x0f) === 8) {
+    try {
+      const ds = new DecompressionStream('deflate');
+      const stream = new Blob([bytes]).stream().pipeThrough(ds);
+      const buf = await new Response(stream).arrayBuffer();
+      return new Uint8Array(buf);
+    } catch (e) { /* fall through, try raw */ }
+  }
+  return bytes;
+}
+
+/* ---------------- helpers to navigate the parsed tree ---------------- */
+function comp(node) { return node && node.type === TAG.Compound ? node.value : null; }
+function field(node, key) { const c = comp(node); return c ? c[key] : undefined; }
+function listItems(node) { return node && node.type === TAG.List ? node.value.items : null; }
+function nodeStr(node) {
+  if (!node) return '';
+  if (node.type === TAG.String) return node.value;
+  if (typeof node.value === 'bigint') return node.value.toString();
+  return String(node.value);
+}
+function nodeNum(node) {
+  if (!node) return undefined;
+  return typeof node.value === 'bigint' ? Number(node.value) : node.value;
+}
+
+function toPlain(node) {
+  if (node === undefined || node === null) return null;
+  const v = node.value;
+  switch (node.type) {
+    case TAG.Byte: case TAG.Short: case TAG.Int: case TAG.Float: case TAG.Double:
+      return v;
+    case TAG.Long: return v.toString() + 'L';
+    case TAG.String: return v;
+    case TAG.ByteArray: return v;
+    case TAG.IntArray: return v;
+    case TAG.LongArray: return v.map(x => x.toString() + 'L');
+    case TAG.List: return v.items.map(toPlain);
+    case TAG.Compound: {
+      const out = {};
+      for (const k of Object.keys(v)) out[k] = toPlain(v[k]);
+      return out;
+    }
+    default: return v;
+  }
+}
+
+/* ---------------- item extraction ---------------- */
+function getItemId(itemNode) {
+  const idNode = field(itemNode, 'id');
+  return idNode ? nodeStr(idNode) : null;
+}
+function getItemCount(itemNode) {
+  const c = comp(itemNode);
+  if (!c) return 0;
+  if (c['count']) return nodeNum(c['count']);
+  if (c['Count']) return nodeNum(c['Count']);
+  return 0;
+}
+function getItemSlot(itemNode) {
+  const c = comp(itemNode);
+  if (!c) return null;
+  if (c['Slot']) return nodeNum(c['Slot']);
+  if (c['slot']) return nodeNum(c['slot']);
+  return null;
+}
+function getEnchants(itemNode) {
+  const out = [];
+  const c = comp(itemNode);
+  if (!c) return out;
+  const components = comp(c['components']);
+  if (components) {
+    const enchNode = components['minecraft:enchantments'] || components['minecraft:stored_enchantments'];
+    const enchComp = comp(enchNode);
+    if (enchComp) {
+      const levelsComp = comp(enchComp['levels']) || enchComp;
+      for (const [k, v] of Object.entries(levelsComp)) {
+        if (k === 'show_in_tooltip') continue;
+        out.push(k.replace('minecraft:', '') + ' ' + nodeNum(v));
+      }
+    }
+  }
+  const tag = comp(c['tag']);
+  if (tag) {
+    const enchList = listItems(tag['Enchantments']) || listItems(tag['ench']) || listItems(tag['StoredEnchantments']);
+    if (enchList) {
+      for (const e of enchList) {
+        const ec = comp(e);
+        if (!ec) continue;
+        const id = ec['id'] ? nodeStr(ec['id']) : '?';
+        const lvl = ec['lvl'] ? nodeNum(ec['lvl']) : '';
+        out.push(id.replace('minecraft:', '') + ' ' + lvl);
+      }
+    }
+  }
+  return out;
+}
+function getCustomName(itemNode) {
+  const c = comp(itemNode);
+  if (!c) return null;
+  const components = comp(c['components']);
+  if (components && components['minecraft:custom_name']) {
+    return extractText(nodeStr(components['minecraft:custom_name']));
+  }
+  const tag = comp(c['tag']);
+  if (tag) {
+    const display = comp(tag['display']);
+    if (display && display['Name']) return extractText(nodeStr(display['Name']));
+  }
+  return null;
+}
+function extractText(raw) {
+  try {
+    const j = JSON.parse(raw);
+    if (typeof j === 'string') return j;
+    if (j && j.text) return j.text;
+    if (Array.isArray(j)) return j.map(p => (p && p.text) || '').join('');
+  } catch (e) { /* not json */ }
+  return raw.replace(/^"|"$/g, '');
+}
+/** Returns array of {slot, item} for the contents of a container item (shulker box etc), or null */
+function getContainerContents(itemNode) {
+  const c = comp(itemNode);
+  if (!c) return null;
+  const components = comp(c['components']);
+  if (components) {
+    const containerList = listItems(components['minecraft:container']);
+    if (containerList) {
+      return containerList.map(entry => {
+        const ec = comp(entry);
+        return { slot: ec['slot'] ? nodeNum(ec['slot']) : 0, item: ec['item'] };
+      }).filter(x => x.item);
+    }
+  }
+  const tag = comp(c['tag']);
+  if (tag) {
+    const bet = comp(tag['BlockEntityTag']);
+    if (bet) {
+      const items = listItems(bet['Items']);
+      if (items) {
+        return items.map(it => ({ slot: getItemSlot(it) ?? 0, item: it }));
+      }
+    }
+  }
+  return null;
+}
+
+/* ---------------- rendering ---------------- */
+let detailCounter = 0;
+function renderSlot(itemNode, slotIndex) {
+  const div = document.createElement('div');
+  if (!itemNode) {
+    div.className = 'slot empty';
+    div.innerHTML = `<span class="idx">${slotIndex}</span>`;
+    return div;
+  }
+  const id = (getItemId(itemNode) || '?').replace('minecraft:', '');
+  const count = getItemCount(itemNode);
+  const enchants = getEnchants(itemNode);
+  const customName = getCustomName(itemNode);
+  const contents = getContainerContents(itemNode);
+  div.className = 'slot' + (contents ? ' special' : '');
+  div.innerHTML = `
+    <span class="idx">${slotIndex}</span>
+    <span class="cnt">${count > 1 ? 'x' + count : ''}</span>
+    <span class="name">${customName ? '“' + customName + '”' : id}</span>
+  `;
+  const myId = 'detail-' + (detailCounter++);
+  div.addEventListener('click', () => {
+    const el = document.getElementById(myId);
+    if (el) el.classList.toggle('show');
+  });
+
+  const wrapper = document.createElement('div');
+  wrapper.appendChild(div);
+
+  const detail = document.createElement('div');
+  detail.className = 'detail';
+  detail.id = myId;
+  let html = `<div><span class="tag">${id}</span>${enchants.length ? enchants.map(e => `<span class="tag">${e}</span>`).join('') : ''}</div>`;
+  if (customName) html += `<div style="margin-top:6px;">Name: <b>${customName}</b></div>`;
+
+  if (contents && contents.length) {
+    html += `<div class="nested"><div class="section-label" style="margin-top:0;">Container contents (${contents.length})</div></div>`;
+  }
+  html += `<pre>${escapeHtml(JSON.stringify(toPlain(itemNode), null, 1))}</pre>`;
+  detail.innerHTML = html;
+
+  if (contents && contents.length) {
+    const nestedGrid = document.createElement('div');
+    nestedGrid.className = 'invgrid';
+    nestedGrid.style.marginTop = '6px';
+    const bySlot = {};
+    contents.forEach(c => bySlot[c.slot] = c.item);
+    const maxSlot = Math.max(...contents.map(c => c.slot), 26);
+    for (let i = 0; i <= maxSlot; i++) nestedGrid.appendChild(renderSlot(bySlot[i], i));
+    detail.querySelector('.nested').appendChild(nestedGrid);
+  }
+  wrapper.appendChild(detail);
+  return wrapper;
+}
+function escapeHtml(s) { return s.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+
+function renderInventoryPanel(container, rootNode, listKey, title) {
+  container.innerHTML = '';
+  const listNode = field(rootNode, listKey);
+  const items = listItems(listNode);
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.innerHTML = `<h2>${title}</h2>`;
+  if (!items || items.length === 0) {
+    card.innerHTML += `<div class="empty-msg">No items / empty</div>`;
+    container.appendChild(card);
+    return;
+  }
+  const bySlot = {};
+  for (const it of items) {
+    const s = getItemSlot(it);
+    if (s !== null) bySlot[s] = it;
+  }
+
+  function buildRow(label, slots) {
+    const wrap = document.createElement('div');
+    wrap.innerHTML = `<div class="section-label">${label}</div>`;
+    const grid = document.createElement('div');
+    grid.className = 'invgrid';
+    grid.style.gridTemplateColumns = `repeat(${slots.length}, 56px)`;
+    for (const s of slots) grid.appendChild(renderSlot(bySlot[s], s));
+    wrap.appendChild(grid);
+    return wrap;
+  }
+
+  if (listKey === 'Inventory') {
+    card.appendChild(buildRow('Hotbar (0-8)', [0,1,2,3,4,5,6,7,8]));
+    const main = []; for (let i = 9; i <= 35; i++) main.push(i);
+    card.appendChild(buildRow('Main inventory (9-35)', main));
+    card.appendChild(buildRow('Armor (100-103: boots,legs,chest,helmet)', [100,101,102,103]));
+    card.appendChild(buildRow('Offhand (-106)', [-106]));
+  } else {
+    const all = Object.keys(bySlot).map(Number).sort((a,b)=>a-b);
+    const max = Math.max(...all, 26);
+    const slots = []; for (let i = 0; i <= max; i++) slots.push(i);
+    card.appendChild(buildRow('Slots', slots));
+  }
+  container.appendChild(card);
+}
+
+/* ---------------- raw NBT tree ---------------- */
+function renderRawTree(node, indent = '') {
+  let out = '';
+  if (node.type === TAG.Compound) {
+    const keys = Object.keys(node.value);
+    out += `Compound (${keys.length} entries)\n`;
+    for (const k of keys) {
+      out += `${indent}  ${escapeHtml(k)}: `;
+      out += renderRawTree(node.value[k], indent + '  ');
+    }
+  } else if (node.type === TAG.List) {
+    out += `List<${node.value.elemType}> [${node.value.items.length}]\n`;
+    node.value.items.slice(0, 200).forEach((it, i) => {
+      out += `${indent}  [${i}]: ${renderRawTree(it, indent + '  ')}`;
+    });
+    if (node.value.items.length > 200) out += `${indent}  ... (${node.value.items.length - 200} more)\n`;
+  } else if (node.type === TAG.Long) {
+    out += node.value.toString() + 'L\n';
+  } else if (node.type === TAG.LongArray) {
+    out += '[' + node.value.map(v => v.toString()+'L').join(', ') + ']\n';
+  } else {
+    out += JSON.stringify(node.value) + '\n';
+  }
+  return out;
+}
+
+/* ---------------- UUID / skin lookup ---------------- */
+function filenameToUuid(filename) {
+  const base = filename.replace(/\.dat(_old|_new)?$/i, '');
+  const hex = base.replace(/-/g, '');
+  if (/^[0-9a-fA-F]{32}$/.test(hex)) {
+    return [hex.slice(0,8), hex.slice(8,12), hex.slice(12,16), hex.slice(16,20), hex.slice(20)].join('-').toLowerCase();
+  }
+  return null;
+}
+function intArrayToUuid(node) {
+  if (!node || node.type !== TAG.IntArray || node.value.length !== 4) return null;
+  const bytes = [];
+  for (const int32 of node.value) {
+    for (let i = 3; i >= 0; i--) bytes.push((int32 >> (i*8)) & 0xff);
+  }
+  const hex = bytes.map(b => b.toString(16).padStart(2,'0')).join('');
+  return [hex.slice(0,8), hex.slice(8,12), hex.slice(12,16), hex.slice(16,20), hex.slice(20)].join('-');
+}
+
+async function setupIdentity(rootNode, filename) {
+  let uuid = filenameToUuid(filename);
+  if (!uuid) {
+    const uuidNode = field(rootNode, 'UUID');
+    uuid = intArrayToUuid(uuidNode);
+  }
+  const uuidBox = document.getElementById('uuidBox');
+  const usernameSpan = document.getElementById('usernameSpan');
+  const avatarImg = document.getElementById('avatarImg');
+  const renderImg = document.getElementById('renderImg');
+  const namemcLink = document.getElementById('namemcLink');
+  const skinLink = document.getElementById('skinLink');
+
+  if (!uuid) {
+    uuidBox.textContent = 'Could not determine UUID (filename is not a UUID and no UUID tag found)';
+    usernameSpan.textContent = '—';
+    avatarImg.style.display = 'none';
+    renderImg.style.display = 'none';
+    namemcLink.style.display = 'none';
+    skinLink.style.display = 'none';
+    return;
+  }
+  uuidBox.textContent = uuid;
+  const noDash = uuid.replace(/-/g, '');
+  avatarImg.src = `https://crafatar.com/avatars/${noDash}?size=100&overlay`;
+  renderImg.src = `https://crafatar.com/renders/body/${noDash}?overlay`;
+  namemcLink.href = `https://namemc.com/profile/${noDash}`;
+  skinLink.href = `https://crafatar.com/skins/${noDash}`;
+
+  try {
+    const resp = await fetch(`https://sessionserver.mojang.com/session/minecraft/profile/${noDash}`);
+    if (resp.ok) {
+      const data = await resp.json();
+      usernameSpan.textContent = data.name || '(unknown)';
+    } else {
+      usernameSpan.textContent = '(lookup failed — offline-mode UUID or API unreachable)';
+    }
+  } catch (e) {
+    usernameSpan.textContent = '(lookup failed — network/CORS)';
+  }
+}
+
+/* ---------------- stats ---------------- */
+function statRow(label, value) {
+  return `<div class="kv"><b>${label}</b><span>${value}</span></div>`;
+}
+function renderStats(rootNode) {
+  const grid = document.getElementById('statsGrid');
+  const c = comp(rootNode) || {};
+  let html = '';
+  const health = c['Health'] ? nodeNum(c['Health']).toFixed(1) : '—';
+  html += statRow('Health', health);
+  html += statRow('Food level', c['foodLevel'] ? nodeNum(c['foodLevel']) : '—');
+  html += statRow('Saturation', c['foodSaturationLevel'] ? nodeNum(c['foodSaturationLevel']).toFixed(1) : '—');
+  html += statRow('XP level', c['XpLevel'] ? nodeNum(c['XpLevel']) : '—');
+  html += statRow('XP total', c['XpTotal'] ? nodeNum(c['XpTotal']) : '—');
+  html += statRow('Game mode', c['playerGameType'] !== undefined ? nodeNum(c['playerGameType']) : '—');
+  html += statRow('Score', c['Score'] ? nodeNum(c['Score']) : '—');
+  html += statRow('Selected hotbar slot', c['SelectedItemSlot'] !== undefined ? nodeNum(c['SelectedItemSlot']) : '—');
+  let dim = c['Dimension'] ? nodeStr(c['Dimension']) : '—';
+  html += statRow('Dimension', dim);
+  const pos = listItems(c['Pos']);
+  if (pos) html += statRow('Position', pos.map(p => nodeNum(p).toFixed(1)).join(', '));
+  const air = c['Air'] ? nodeNum(c['Air']) : null;
+  if (air !== null) html += statRow('Air', air);
+  const onGround = c['OnGround'];
+  if (onGround) html += statRow('On ground', nodeNum(onGround) ? 'yes' : 'no');
+  const invuln = c['Invulnerable'];
+  if (invuln) html += statRow('Invulnerable', nodeNum(invuln) ? 'yes' : 'no');
+  const abilities = comp(c['abilities']);
+  if (abilities) {
+    if (abilities['flying']) html += statRow('Flying', nodeNum(abilities['flying']) ? 'yes' : 'no');
+    if (abilities['mayfly']) html += statRow('May fly', nodeNum(abilities['mayfly']) ? 'yes' : 'no');
+    if (abilities['invulnerable']) html += statRow('Ability: invulnerable', nodeNum(abilities['invulnerable']) ? 'yes' : 'no');
+  }
+  const dataVersion = c['DataVersion'];
+  if (dataVersion) html += statRow('Data version', nodeNum(dataVersion));
+  grid.innerHTML = html;
+}
+
+/* ---------------- tabs ---------------- */
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
+  });
+});
+
+/* ---------------- file loading ---------------- */
+const dropzone = document.getElementById('dropzone');
+const fileInput = document.getElementById('fileInput');
+const mainEl = document.getElementById('main');
+const errbox = document.getElementById('errbox');
+
+dropzone.addEventListener('click', () => fileInput.click());
+dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('drag'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag'));
+dropzone.addEventListener('drop', e => {
+  e.preventDefault(); dropzone.classList.remove('drag');
+  if (e.dataTransfer.files.length) loadFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', e => { if (e.target.files.length) loadFile(e.target.files[0]); });
+
+async function loadFile(file) {
+  errbox.innerHTML = '';
+  try {
+    const buf = new Uint8Array(await file.arrayBuffer());
+    const raw = await decompressIfNeeded(buf);
+    const reader = new NBTReader(raw);
+    const { node } = reader.readRoot();
+
+    await setupIdentity(node, file.name);
+    renderStats(node);
+    renderInventoryPanel(document.getElementById('invContent'), node, 'Inventory', 'Inventory');
+    renderInventoryPanel(document.getElementById('enderContent'), node, 'EnderItems', 'Ender Chest');
+    document.getElementById('rawtree').textContent = renderRawTree(node);
+
+    mainEl.classList.add('show');
+  } catch (err) {
+    console.error(err);
+    errbox.innerHTML = `<div class="err">Failed to parse file: ${escapeHtml(err.message || String(err))}<br>Make sure this is a valid, uncorrupted player .dat file.</div>`;
+  }
+}
+</script>
+</body>
+</html>
