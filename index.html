@@ -415,6 +415,9 @@ function nodeStr(node) {
   if (!node) return '';
   if (node.type === TAG.String) return node.value;
   if (typeof node.value === 'bigint') return node.value.toString();
+  // Compound/List have no sensible plain-text form — never let them fall through to
+  // JS's default String(object) coercion, which silently yields "[object Object]".
+  if (node.type === TAG.Compound || node.type === TAG.List) return JSON.stringify(toPlain(node));
   return String(node.value);
 }
 function nodeNum(node) {
@@ -508,8 +511,50 @@ function richText(raw) {
   } else {
     html = formatLegacyText(raw.replace(/^"|"$/g, ''));
   }
+  return htmlToRich(html);
+}
+function htmlToRich(html) {
   const plain = html.replace(/<[^>]+>/g, '').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>');
   return { html, plain };
+}
+/**
+ * Some servers/plugins (and a few NBT variants) store text components as a *native NBT
+ * compound/list* (fields like text/color/extra directly as NBT tags) instead of a TAG_String
+ * holding JSON. Dispatches on the actual tag type so we never accidentally String()-coerce
+ * an object (which would render literally as "[object Object]").
+ */
+function formatNbtComponent(node, inherited) {
+  inherited = inherited || {};
+  if (!node) return '';
+  if (node.type === TAG.String) return formatLegacyText(node.value);
+  if (node.type === TAG.List) return node.value.items.map(it => formatNbtComponent(it, inherited)).join('');
+  if (node.type === TAG.Compound) {
+    const c = node.value;
+    const st = Object.assign({}, inherited);
+    if (c['color']) {
+      const colorStr = nodeStr(c['color']);
+      st.color = colorStr.startsWith('#') ? colorStr : (MC_COLORS[colorStr] || null);
+    }
+    if (c['bold'] !== undefined) st.bold = !!nodeNum(c['bold']);
+    if (c['italic'] !== undefined) st.italic = !!nodeNum(c['italic']);
+    let html = '';
+    if (c['text'] !== undefined) {
+      const style = `${st.color ? `color:${st.color};` : ''}${st.italic ? 'font-style:italic;' : ''}${st.bold ? 'font-weight:700;' : ''}`;
+      const inner = formatLegacyText(nodeStr(c['text']));
+      html += style ? `<span style="${style}">${inner}</span>` : inner;
+    }
+    if (c['extra']) html += formatNbtComponent(c['extra'], st);
+    return html;
+  }
+  // number/byte/etc — render its plain value rather than risk String(object)
+  return escapeHtml(nodeStr(node));
+}
+/** node = any NBT node holding a text component (String w/ JSON, String w/ legacy codes, or a native NBT compound) -> {html, plain} */
+function richTextNode(node) {
+  if (!node) return null;
+  if (node.type === TAG.String) return richText(node.value);
+  if (node.type === TAG.Compound || node.type === TAG.List) return htmlToRich(formatNbtComponent(node));
+  return htmlToRich(escapeHtml(nodeStr(node)));
 }
 
 /* ---------------- item extraction ---------------- */
@@ -570,12 +615,12 @@ function getCustomName(itemNode) {
   if (!c) return null;
   const components = comp(c['components']);
   if (components && components['minecraft:custom_name']) {
-    return richText(nodeStr(components['minecraft:custom_name']));
+    return richTextNode(components['minecraft:custom_name']);
   }
   const tag = comp(c['tag']);
   if (tag) {
     const display = comp(tag['display']);
-    if (display && display['Name']) return richText(nodeStr(display['Name']));
+    if (display && display['Name']) return richTextNode(display['Name']);
   }
   return null;
 }
@@ -603,21 +648,23 @@ function getPotionName(itemNode) {
   if (rawId.includes('tipped_arrow') || rawId.includes('arrow')) return `Arrow of ${base}`;
   return `Potion of ${base}`;
 }
-/** Written/writable book title (+author), or null. */
+/** Written/writable book title (+author) as {titleRich, authorRich} rich-text objects, or null. */
 function getBookInfo(itemNode) {
   const c = comp(itemNode);
   if (!c) return null;
   const components = comp(c['components']);
   if (components && components['minecraft:written_book_content']) {
     const wb = comp(components['minecraft:written_book_content']);
-    const titleComp = comp(wb['title']);
-    const title = titleComp && titleComp['raw'] ? nodeStr(titleComp['raw']) : (wb['title'] ? nodeStr(wb['title']) : null);
-    const author = wb['author'] ? nodeStr(wb['author']) : null;
-    if (title) return { title, author };
+    let titleNode = wb['title'];
+    const titleComp = comp(titleNode);
+    if (titleComp && titleComp['raw']) titleNode = titleComp['raw'];
+    const titleRich = titleNode ? richTextNode(titleNode) : null;
+    const authorRich = wb['author'] ? richTextNode(wb['author']) : null;
+    if (titleRich && titleRich.plain) return { titleRich, authorRich };
   }
   const tag = comp(c['tag']);
   if (tag && tag['title']) {
-    return { title: nodeStr(tag['title']), author: tag['author'] ? nodeStr(tag['author']) : null };
+    return { titleRich: richTextNode(tag['title']), authorRich: tag['author'] ? richTextNode(tag['author']) : null };
   }
   return null;
 }
@@ -761,7 +808,7 @@ function renderSlot(itemNode, slotIndex) {
   // slot label: custom name > book title > potion name > humanized item name
   let nameHtml, namePlain;
   if (customName) { nameHtml = '“' + customName.html + '”'; namePlain = '“' + customName.plain + '”'; }
-  else if (bookInfo) { nameHtml = formatLegacyText(bookInfo.title); namePlain = bookInfo.title.replace(/§[0-9a-fk-or]/gi, ''); }
+  else if (bookInfo) { nameHtml = bookInfo.titleRich.html; namePlain = bookInfo.titleRich.plain; }
   else if (potionName) { nameHtml = namePlain = escapeHtml(potionName); }
   else { nameHtml = namePlain = escapeHtml(humanized); }
   if (isEnchanted && !customName) nameHtml = `<span class="ench-glint">${nameHtml}</span>`;
@@ -792,7 +839,7 @@ function renderSlot(itemNode, slotIndex) {
   detail.id = myId;
   let html = `<div style="font-size:14px; font-weight:700; margin-bottom:6px;">${nameHtml}</div>`;
   html += `<div><span class="tag">${escapeHtml(id)}</span>${enchants.length ? enchants.map(e => `<span class="tag">✨ ${escapeHtml(e.name)} ${toRoman(e.level)}</span>`).join('') : ''}</div>`;
-  if (bookInfo) html += `<div style="margin-top:8px;">📖 <b>${formatLegacyText(bookInfo.title)}</b>${bookInfo.author ? ` <span style="color:var(--muted)">by ${formatLegacyText(bookInfo.author)}</span>` : ''}</div>`;
+  if (bookInfo) html += `<div style="margin-top:8px;">📖 <b>${bookInfo.titleRich.html}</b>${bookInfo.authorRich ? ` <span style="color:var(--muted)">by ${bookInfo.authorRich.html}</span>` : ''}</div>`;
 
   if (contents && contents.length) {
     html += `<div class="nested"><div class="section-label" style="margin-top:0;">Container contents (${contents.length})</div></div>`;
